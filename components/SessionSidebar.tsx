@@ -32,6 +32,7 @@ import {
   forgetRetiredSidebarKeys,
   loadArchiveCollapsed,
   loadFilesCollapsed,
+  loadGitHistoryOpen,
   loadGroupExpansion,
   loadNonGitCwds,
   loadPinnedCollapsed,
@@ -40,6 +41,7 @@ import {
   rememberCwdGitStatus,
   saveArchiveCollapsed,
   saveFilesCollapsed,
+  saveGitHistoryOpen,
   saveGroupExpansion,
   savePinnedCollapsed,
   saveShowIgnoredFiles,
@@ -85,6 +87,7 @@ import { DirectoryPicker } from "./DirectoryPicker";
 import { DismissButton } from "./DismissButton";
 import { FileExplorer, type FileExplorerHandle } from "./FileExplorer";
 import { PiWebTitle } from "./PiWebTitle";
+import { GitHistory, type GitCommitFileTarget } from "./GitHistory";
 import { ProjectWorktreePicker, type ProjectWorktreePickerHandle, type WorktreeRemoval } from "./ProjectWorktreePicker";
 import { SessionSearch } from "./SessionSearch";
 import { SessionTree, sessionRowTitle, type SessionTreeReveal } from "./SessionTree";
@@ -219,6 +222,7 @@ interface Props {
     projectKey?: string | null,
   ) => void;
   onOpenFile?: (filePath: string, fileName: string, options?: { sourceSessionId?: string | null; modeHint?: "diff" }) => void;
+  onOpenCommitFile?: (target: GitCommitFileTarget) => void;
   onOpenTerminal?: (cwd: string) => void;
   explorerRefreshKey?: number;
   onExplorerRefresh?: () => void;
@@ -306,6 +310,11 @@ const ARCHIVE_OLDER_THAN_MS = 7 * 24 * 60 * 60 * 1000;
 /** The archive bar's "Delete archived over 30 days ago", by archive time. */
 const ARCHIVED_DELETE_AFTER_MS = 30 * 24 * 60 * 60 * 1000;
 const TOAST_TITLE_MAX = 28;
+// The files tab's Git history section and the explorer above it.
+const EXPLORER_PANE_MIN_HEIGHT = 120;
+const GIT_HISTORY_PANE_DEFAULT_HEIGHT = 220;
+const GIT_HISTORY_PANE_MIN_HEIGHT = 80;
+const GIT_HISTORY_PANE_MAX_HEIGHT = 1600;
 
 /**
  * The files section below the sessions (the desktop's default layout). Its
@@ -492,7 +501,7 @@ function buttonAnchor(element: HTMLElement, align: "start" | "end"): SidebarMenu
   return { kind: "rect", rect: { left: rect.left, top: rect.top, right: rect.right, bottom: rect.bottom }, align };
 }
 
-export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSession, controlRef, onNewSessionContextChange, initialSessionId, initialSessionLinked, skipInitialProjectSelection, onInitialRestoreDone, refreshKey, onSessionDeleted, selectedCwd: selectedCwdProp, onCwdChange, onOpenFile, onOpenTerminal, explorerRefreshKey, onExplorerRefresh, onAtMention, onAtMentions, onBackgroundTaskDone, onRunningSessionIdsChange, onSessionsChange }: Props) {
+export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSession, controlRef, onNewSessionContextChange, initialSessionId, initialSessionLinked, skipInitialProjectSelection, onInitialRestoreDone, refreshKey, onSessionDeleted, selectedCwd: selectedCwdProp, onCwdChange, onOpenFile, onOpenCommitFile, onOpenTerminal, explorerRefreshKey, onExplorerRefresh, onAtMention, onAtMentions, onBackgroundTaskDone, onRunningSessionIdsChange, onSessionsChange }: Props) {
   const { t } = useI18n();
   const isMobile = useIsMobile();
   const [allSessions, setAllSessions] = useState<SessionInfo[]>([]);
@@ -532,6 +541,10 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
   const [changesCount, setChangesCount] = useState(0);
   const [changesCollapsed, setChangesCollapsed] = useState(true);
   const [showIgnoredFiles, setShowIgnoredFiles] = useState(false);
+  // The files tab's Git history section, below the explorer: collapsed by
+  // default, shown only once the cwd turns out to be a repository.
+  const [gitHistoryOpen, setGitHistoryOpen] = useState(false);
+  const [gitHistoryAvailable, setGitHistoryAvailable] = useState(false);
   const [explorerRefreshDone, setExplorerRefreshDone] = useState(false);
   const [fileManager, setFileManager] = useState<FileManagerAvailability | null>(null);
   const [fileManagerError, setFileManagerError] = useState<string | null>(null);
@@ -718,6 +731,31 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
     return () => observer.disconnect();
   }, [reclampFilesHeight, stacked]);
 
+  const gitHistorySectionRef = useRef<HTMLDivElement>(null);
+  const gitHistoryHeightRef = useRef(GIT_HISTORY_PANE_DEFAULT_HEIGHT);
+  // The history grows upwards into the explorer, which keeps a minimum height.
+  const getMaxGitHistoryHeight = useCallback(() => {
+    const historyHeight = gitHistorySectionRef.current?.getBoundingClientRect().height ?? GIT_HISTORY_PANE_DEFAULT_HEIGHT;
+    const explorerHeight = explorerScrollRef.current?.getBoundingClientRect().height ?? EXPLORER_PANE_MIN_HEIGHT;
+    return Math.max(GIT_HISTORY_PANE_MIN_HEIGHT, historyHeight + explorerHeight - EXPLORER_PANE_MIN_HEIGHT);
+  }, []);
+  const gitHistoryResizer = useResizablePanel({
+    ariaLabel: t("layout.resizeGitHistory"),
+    axis: "vertical",
+    cssVariable: "--sidebar-git-history-height",
+    defaultWidth: GIT_HISTORY_PANE_DEFAULT_HEIGHT,
+    getMaxWidth: getMaxGitHistoryHeight,
+    growthDirection: "up",
+    maxWidth: GIT_HISTORY_PANE_MAX_HEIGHT,
+    minWidth: GIT_HISTORY_PANE_MIN_HEIGHT,
+    storageKey: "pi-web:sidebar-git-history-height",
+    widthRef: gitHistoryHeightRef,
+  });
+  const handleGitHistoryOpenChange = useCallback((open: boolean) => {
+    setGitHistoryOpen(open);
+    saveGitHistoryOpen(open);
+  }, []);
+
   // Browser storage is unavailable during server rendering. Restore the
   // sidebar preferences after hydration: read in a state initializer, a saved
   // Files tab would make the first client render differ from the server's
@@ -733,6 +771,7 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
     if (archiveFolds.length > 0) setArchiveCollapsed(archiveFolds);
     if (loadFilesCollapsed()) setFilesCollapsed(true);
     if (loadShowIgnoredFiles()) setShowIgnoredFiles(true);
+    if (loadGitHistoryOpen()) setGitHistoryOpen(true);
     forgetRetiredSidebarKeys();
   }, []);
 
@@ -2647,6 +2686,7 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
   } as const;
 
   const explorerCwd = selectedCwd ?? selectedCwdProp ?? null;
+  const gitHistoryShown = explorerCwd !== null && gitHistoryAvailable && gitHistoryOpen;
   const changedFilesTitle = explorerCwd && changesCount > 0 ? t("sidebar.changedFiles", { count: changesCount }) : undefined;
   // The changes view's key turns disabled once nothing is changed (a
   // commit, a revert), under a keyboard user too. The browser blurs it to
@@ -3141,6 +3181,54 @@ export function SessionSidebar({ selectedSessionId, onSelectSession, onNewSessio
               />
             )}
           </div>
+
+        {explorerCwd && gitHistoryShown && (
+          <div
+            className={`git-history-resize-handle${gitHistoryResizer.isResizing ? " is-resizing" : ""}`}
+            data-resize-handle="sidebar-git-history"
+            title={`${t("layout.resizeGitHistory")}: ${t("layout.resizeHeightHint")}`}
+            style={{
+              position: "relative",
+              zIndex: 20,
+              width: "100%",
+              height: 12,
+              margin: "-6px 0",
+              flex: "0 0 12px",
+              cursor: "row-resize",
+              touchAction: "none",
+            }}
+            {...gitHistoryResizer.separatorProps}
+          />
+        )}
+
+        {/* Git history: mounted for any cwd, shown once it is a repository. */}
+        {explorerCwd && (
+          <div
+            ref={(element) => {
+              gitHistorySectionRef.current = element;
+              gitHistoryResizer.panelRef.current = element;
+            }}
+            className="sidebar-git-history"
+            style={{
+              borderTop: "1px solid var(--border)",
+              display: gitHistoryAvailable ? "flex" : "none",
+              flexDirection: "column",
+              flex: gitHistoryShown ? "0 1 var(--sidebar-git-history-height, 220px)" : "0 0 auto",
+              minHeight: gitHistoryShown ? GIT_HISTORY_PANE_MIN_HEIGHT : 0,
+              overflow: "hidden",
+              "--sidebar-git-history-height": `${gitHistoryResizer.width}px`,
+            } as CSSProperties}
+          >
+            <GitHistory
+              cwd={explorerCwd}
+              refreshKey={explorerKey}
+              open={gitHistoryOpen}
+              onOpenChange={handleGitHistoryOpenChange}
+              onAvailableChange={setGitHistoryAvailable}
+              onOpenCommitFile={onOpenCommitFile ?? (() => {})}
+            />
+          </div>
+        )}
         </div>
       </div>
 
