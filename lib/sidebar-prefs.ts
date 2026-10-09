@@ -10,6 +10,7 @@ const SIDEBAR_TAB_STORAGE_KEY = "pi-web:sidebar-tab";
 const GROUP_EXPANSION_STORAGE_KEY = "pi-web:sidebar-groups";
 const PINNED_COLLAPSED_STORAGE_KEY = "pi-web:sidebar-pins-collapsed";
 const SHOW_IGNORED_FILES_STORAGE_KEY = "pi-web:sidebar-files-show-ignored";
+const GIT_HISTORY_OPEN_STORAGE_KEY = "pi-web:git-history:open";
 /** What the sessions/explorer split, which the two tabs replaced, kept: nothing reads them now. */
 const RETIRED_STORAGE_KEYS = ["pi-web:file-explorer:open", "pi-web:sidebar-session-pane-height"];
 
@@ -130,6 +131,28 @@ export function saveShowIgnoredFiles(
   if (!storage) return;
   try {
     storage.setItem(SHOW_IGNORED_FILES_STORAGE_KEY, String(show));
+  } catch {
+    // Persistence is best-effort.
+  }
+}
+
+/** The files tab's Git history section; collapsed until it is opened once. */
+export function loadGitHistoryOpen(storage: StorageLike | null = getBrowserStorage()): boolean {
+  if (!storage) return false;
+  try {
+    return storage.getItem(GIT_HISTORY_OPEN_STORAGE_KEY) === "true";
+  } catch {
+    return false;
+  }
+}
+
+export function saveGitHistoryOpen(
+  open: boolean,
+  storage: StorageLike | null = getBrowserStorage(),
+): void {
+  if (!storage) return;
+  try {
+    storage.setItem(GIT_HISTORY_OPEN_STORAGE_KEY, String(open));
   } catch {
     // Persistence is best-effort.
   }

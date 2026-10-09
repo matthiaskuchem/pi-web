@@ -175,7 +175,9 @@ test("sessions and files are two tabs of one sidebar, both kept mounted", () => 
   assert.equal((source.match(/onScrollCapture=\{rememberScroll\}/g) ?? []).length, 2);
   assert.match(source, /if \(saved !== undefined && element\.scrollTop !== saved\) element\.scrollTop = saved;\s*\}\s*\}, \[sidebarTab, archiveView\]\);/);
   // No vertical sessions/explorer split any more.
-  assert.doesNotMatch(source, /useResizablePanel|axis: "vertical"|--sidebar-session-pane-height|explorerOpen|file-explorer-state|data-resize-handle/);
+  assert.doesNotMatch(source, /--sidebar-session-pane-height|explorerOpen|file-explorer-state|data-resize-handle="sidebar-sections"/);
+  // The only vertical resizer left is the files tab's Git history section.
+  assert.equal((source.match(/useResizablePanel\(/g) ?? []).length, 1);
   assert.doesNotMatch(globalStyles, /sidebar-section-resize-handle/);
 });
 
@@ -310,7 +312,7 @@ test("the tab chosen last is shown again after hydration, not in the first rende
   assert.doesNotMatch(source, /useState[^;\n]*\(\(\) => load(?:SidebarTab|GroupExpansion|PinnedCollapsed|ShowIgnoredFiles)\(\)\)/);
   assert.match(
     source,
-    /useEffect\(\(\) => \{\s*const tab = loadSidebarTab\(\);\s*if \(tab !== "sessions"\) setSidebarTab\(tab\);\s*const groups = loadGroupExpansion\(\);\s*if \(Object\.keys\(groups\)\.length > 0\) setGroupExpansion\(groups\);\s*if \(loadPinnedCollapsed\(\)\) setPinnedCollapsed\(true\);\s*if \(loadShowIgnoredFiles\(\)\) setShowIgnoredFiles\(true\);\s*forgetRetiredSidebarKeys\(\);\s*\}, \[\]\);/,
+    /useEffect\(\(\) => \{\s*const tab = loadSidebarTab\(\);\s*if \(tab !== "sessions"\) setSidebarTab\(tab\);\s*const groups = loadGroupExpansion\(\);\s*if \(Object\.keys\(groups\)\.length > 0\) setGroupExpansion\(groups\);\s*if \(loadPinnedCollapsed\(\)\) setPinnedCollapsed\(true\);\s*if \(loadShowIgnoredFiles\(\)\) setShowIgnoredFiles\(true\);\s*if \(loadGitHistoryOpen\(\)\) setGitHistoryOpen\(true\);\s*forgetRetiredSidebarKeys\(\);\s*\}, \[\]\);/,
   );
 });
 
@@ -795,4 +797,23 @@ test("a project's Rename… and Reset name change its display name only, from it
   assert.match(end, /setRenamingProjectKey\(\(current\) => \(current === projectKey \? null : current\)\);\s*focusAfterCommit\(\(\) => groupHeaderButton\(projectKey\)\);/);
   assert.match(source, /renamingProjectKey,\n/);
   assert.match(source, /onRenameProjectCommit: commitProjectRename,\s*onRenameProjectCancel: \(\) => \{ if \(renamingProjectKey\) endProjectRename\(renamingProjectKey\); \},/);
+});
+
+test("the files tab ends in a resizable Git history section once the cwd is a repository", () => {
+  assert.match(source, /storageKey: "pi-web:sidebar-git-history-height"/);
+  assert.match(source, /growthDirection: "up"/);
+  assert.match(source, /data-resize-handle="sidebar-git-history"/);
+  assert.match(source, /\{explorerCwd && gitHistoryShown && \(/);
+  assert.match(source, /const gitHistoryShown = explorerCwd !== null && gitHistoryAvailable && gitHistoryOpen;/);
+  assert.match(source, /display: gitHistoryAvailable \? "flex" : "none"/);
+  assert.match(source, /<GitHistory[\s\S]*?refreshKey=\{explorerKey\}[\s\S]*?onAvailableChange=\{setGitHistoryAvailable\}/);
+  // Collapsed until opened; the choice is restored after hydration, like the other sidebar memories.
+  assert.match(source, /if \(loadGitHistoryOpen\(\)\) setGitHistoryOpen\(true\);/);
+  // Inside the files panel, after the explorer's scroll box.
+  const filesPanel = source.slice(source.indexOf('id="session-sidebar-panel-files"'));
+  assert.ok(filesPanel.indexOf("<GitHistory") > filesPanel.indexOf('className="sidebar-files-scroll scrollbar-subtle"'));
+  // Not a repository yet (no fetch in a server render): nothing of it shows.
+  const html = render({ selectedCwd: "/work/alpha" });
+  assert.match(html, /class="sidebar-git-history" style="[^"]*display:none/);
+  assert.doesNotMatch(html, /data-resize-handle="sidebar-git-history"/);
 });

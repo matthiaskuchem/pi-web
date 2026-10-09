@@ -2059,6 +2059,113 @@ span.token.table {
 .panel-resize-handle.is-resizing::after {
   background: color-mix(in srgb, var(--text-muted) 70%, var(--border));
 }
+.git-history-resize-handle {
+  outline: none;
+}
+.git-history-resize-handle::after {
+  content: "";
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 5px;
+  height: 1px;
+  pointer-events: none;
+  background: transparent;
+  transition: background 0.12s ease;
+}
+.git-history-resize-handle:hover::after,
+.git-history-resize-handle:focus-visible::after,
+.git-history-resize-handle.is-resizing::after {
+  background: color-mix(in srgb, var(--text-muted) 70%, var(--border));
+}
+
+/* Sidebar Git history */
+.git-history-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  padding-right: 8px;
+  border: none;
+  border-radius: 4px;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  user-select: none;
+}
+.git-history-row:hover {
+  background: var(--bg-hover);
+}
+.git-history-row:focus-visible,
+.git-history-icon-button:focus-visible,
+.git-history-load-more:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+}
+.git-history-body {
+  font-size: 11px;
+  line-height: 1.45;
+  color: var(--text-muted);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.git-history-text-button {
+  align-self: flex-start;
+  padding: 0;
+  border: none;
+  background: none;
+  color: var(--text-dim);
+  font-size: 10px;
+  cursor: pointer;
+}
+.git-history-text-button:hover {
+  color: var(--accent);
+}
+.git-history-text-button:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+  border-radius: 2px;
+}
+.git-history-icon-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  margin-right: 6px;
+  padding: 0;
+  border: none;
+  border-radius: 4px;
+  background: none;
+  color: var(--text-dim);
+  cursor: pointer;
+  flex-shrink: 0;
+}
+.git-history-icon-button:hover {
+  background: var(--bg-hover);
+  color: var(--text);
+}
+.git-history-load-more {
+  display: block;
+  margin: 4px 10px;
+  padding: 3px 8px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: none;
+  color: var(--text-muted);
+  font-size: 11px;
+  cursor: pointer;
+}
+.git-history-load-more:hover:not(:disabled) {
+  background: var(--bg-hover);
+  color: var(--text);
+}
+.git-history-load-more:disabled {
+  cursor: default;
+  opacity: 0.6;
+}
 .right-panel-overlay-backdrop {
   display: none;
 }
