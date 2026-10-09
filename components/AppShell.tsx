@@ -8,6 +8,8 @@ import { ChatWindow } from "./ChatWindow";
 import { NewSessionContextBar, type NewSessionContextControl } from "./NewSessionContextBar";
 import type { ChatScrollPosition } from "@/lib/chat-scroll-position";
 import { FileViewer } from "./FileViewer";
+import { GitCommitDiffViewer } from "./GitCommitDiffViewer";
+import type { GitCommitFileTarget } from "./GitHistory";
 import { TabBar, type Tab } from "./TabBar";
 import { openFileTab, saveFileViewerState, saveParkedFileViewerState, switchFileWorkspace, type ParkedFileWorkspace } from "./file-tab-state";
 import { SettingsPanel, SettingsSectionIcon } from "./SettingsPanel";
@@ -1159,6 +1161,30 @@ export function AppShell() {
     if (isMobile) setSidebarOpen(false);
   }, [isMobile]);
 
+  const handleOpenCommitFile = useCallback(({ cwd, repositoryRoot, commit, file }: GitCommitFileTarget) => {
+    const tabId = `commit:${commit.sha}:${file.filePath}`;
+    setFileTabs((prev) => prev.some((tab) => tab.id === tabId) ? prev : [...prev, {
+      id: tabId,
+      label: `${getFileName(file.filePath)} @ ${commit.shortSha}`,
+      filePath: file.filePath,
+      kind: "commit-diff",
+      commitDiff: {
+        cwd,
+        repositoryRoot,
+        sha: commit.sha,
+        shortSha: commit.shortSha,
+        subject: commit.subject,
+        authorName: commit.authorName,
+        authoredAt: commit.authoredAt,
+        filePath: file.filePath,
+        oldFilePath: file.oldFilePath,
+      },
+    }]);
+    setActiveFileTabId(tabId);
+    setRightPanelOpen(true);
+    if (isMobile) setSidebarOpen(false);
+  }, [isMobile]);
+
   const handleOpenLinkedFile = useCallback((filePath: string, page?: number) => {
     handleOpenFile(filePath, getFileName(filePath), { sourceSessionId: selectedSession?.id ?? null, page });
   }, [handleOpenFile, selectedSession?.id]);
@@ -1363,6 +1389,7 @@ export function AppShell() {
         selectedCwd={selectedSession?.cwd ?? newSessionCwd ?? null}
         onCwdChange={handleCwdChange}
         onOpenFile={handleOpenFile}
+        onOpenCommitFile={handleOpenCommitFile}
         onOpenTerminal={handleOpenTerminal}
         explorerRefreshKey={explorerRefreshKey}
         onExplorerRefresh={handleExplorerRefresh}
@@ -2651,7 +2678,9 @@ export function AppShell() {
 
         {/* Only the active viewer is mounted. Lightweight per-tab state is restored on activation. */}
         <div style={{ flex: 1, minHeight: 0, overflow: "hidden", paddingBottom: "env(safe-area-inset-bottom)" }}>
-          {activeFileTab?.filePath ? (
+          {activeFileTab?.commitDiff ? (
+            <GitCommitDiffViewer key={activeFileTab.id} target={activeFileTab.commitDiff} />
+          ) : activeFileTab?.filePath ? (
             <FileViewer
               key={`${fileWorkspaceGeneration}:${activeFileTab.id}:${activeFileTab.viewerRevision ?? 0}`}
               filePath={activeFileTab.filePath}
