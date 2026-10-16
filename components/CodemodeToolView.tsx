@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { useI18n } from "@/hooks/useI18n";
+import { bashDescription } from "@/lib/bash-description";
 import {
   codemodeTotalCost,
   formatCodemodeCost,
@@ -28,6 +29,11 @@ function CallRow({ call }: { call: CodemodeCallView }) {
   const { t } = useI18n();
   const status = STATUS_STYLE[call.status];
   const duration = formatCodemodeDuration(call.durationMs);
+  let description = "";
+  if (call.name === "bash") {
+    try { description = bashDescription(JSON.parse(call.args)); }
+    catch { /* The SDK's compact args may be truncated; keep their existing view. */ }
+  }
   return (
     <li style={{ display: "flex", flexDirection: "column", gap: 2, minWidth: 0 }}>
       <div style={{ display: "flex", alignItems: "baseline", gap: 6, minWidth: 0 }}>
@@ -41,8 +47,8 @@ function CallRow({ call }: { call: CodemodeCallView }) {
         </span>
         <span style={{ color: "var(--text-muted)", fontWeight: 600, flexShrink: 0 }}>{call.name}</span>
         {call.args && (
-          <span style={{ color: "var(--text-dim)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", flex: 1, minWidth: 0 }}>
-            {call.args}
+          <span title={description || call.args} style={{ color: description ? "var(--text-muted)" : "var(--text-dim)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: description ? "normal" : "nowrap", overflowWrap: "anywhere", flex: 1, minWidth: 0 }}>
+            {description || call.args}
           </span>
         )}
         {duration && (
@@ -52,6 +58,9 @@ function CallRow({ call }: { call: CodemodeCallView }) {
           <span style={{ color: "var(--text-dim)", flexShrink: 0, fontVariantNumeric: "tabular-nums" }}>{formatCodemodeCost(call.cost)}</span>
         )}
       </div>
+      {description && (
+        <div style={{ color: "var(--text-dim)", paddingLeft: 18, whiteSpace: "pre-wrap", overflowWrap: "anywhere" }}>{call.args}</div>
+      )}
       {call.error && (
         <div style={{ color: "#f87171", paddingLeft: 18, whiteSpace: "pre-wrap", overflowWrap: "anywhere" }}>{call.error}</div>
       )}

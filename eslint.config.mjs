@@ -6,6 +6,8 @@ const eslintConfig = [
   { ignores: ["demo/**"] },
   ...coreWebVitals,
   ...typescript,
+  // This reviewed third-party source is checksum-pinned; preserve its bytes.
+  { files: ["lib/__fixtures__/descriptive-bash/bash-description.ts"], rules: { "import/no-anonymous-default-export": "off" } },
   {
     rules: {
       "react-hooks/immutability": "off",

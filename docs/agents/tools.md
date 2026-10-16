@@ -1,5 +1,15 @@
 # Tool selection and built-in extensions
 
+## Fork-only: descriptive Bash composition
+
+`lib/project-command-env.ts` composes pi0's reviewed `bash-description.ts` only when that extension is actually loaded. Without it, Pi Web's existing Bash contract stays unchanged. The CLI never calls this host integration. The extension's schema (`description` required, `command`, optional seconds-based `timeout`), prompt guidance, `defaultActive: false`, output schema and renderers are retained; only its local executor is replaced. Descriptions are validated before execution and only command/timeout reach the shell. Pi Web keeps server-environment filtering (including `PI_WEB_PASSWORD`), agent-bin lookup, current shell settings, session cwd/context, streaming and Stop/timeout protection. User `!`/`!!` commands are unchanged.
+
+Composition is deliberately narrow: filename `bash-description.ts` **and** SHA-256 `fe89ced304b5f8009ea1aef0b66a6f626dc6afeacbb1f2f1ad9dac38e05c2494`, the pi0 source reviewed on 2026-10-16 and copied verbatim to `lib/__fixtures__/descriptive-bash/bash-description.ts`. A same-named Bash owner with unreadable/changed source refuses runtime creation/reload until reviewed; do not silently substitute a generic adapter or update the digest without checking execution semantics. Other replacements (SSH, sandbox, approval, background tools) keep priority and are never composed. Loader definitions/maps are copied, not mutated, because the SDK caches resources.
+
+Normal sessions compose through `preferUserBashExtension()`. Child spawn and RPC reopen pass their cwd/settings into `subagentExtensionLoaderOptions()`, which composes **after** profile extension scoping, on every load/reload. This neither loads the extension for a child that excluded it nor grants Bash to a preset/profile that did not select it. Children without the extension retain their prior execution policy. Synthetic in-memory integration tests cover the reviewed source and both loader paths; existing environment/Stop tests cover the shared executor.
+
+Rollout: deploy compatible Pi Web code to every instance that shares agent settings before globally enabling the extension. This feature writes no agent settings and performs no migration; enabling/disabling the external extension and refreshing existing runtimes are separate operations. Rollback cannot undo executed commands or overwrite shared agent/session data.
+
 ## New session tool preset
 Tool names are passed at session creation (`POST /api/agent/new` → `toolNames[]`) and persisted in versioned `pi-web:tool-selection` custom entries (ADR 0002). No entry, or a later `cleared: true` one, means no pin: the session follows pi's `defaultTools`, as the `configured` preset ("From settings.json defaultTools") does by sending no `toolNames`. An empty array is Chat only, resolved before services are created: no extensions/skills/prompts/themes, and the ordered contents of Pi's discovered context files replace Pi's base prompt. Crossing the Chat-only boundary or clearing a pin rebuilds the wrapper; changing between nonempty presets updates it in place.
 

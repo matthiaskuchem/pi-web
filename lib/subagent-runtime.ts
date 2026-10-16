@@ -397,7 +397,7 @@ export function createSubagentController(
         modelRuntime: parentModelRuntime,
         settingsManager,
         resourceLoaderOptions: {
-          ...subagentExtensionLoaderOptions({ ...profile, mcp: mcpEnabled }),
+          ...subagentExtensionLoaderOptions({ ...profile, mcp: mcpEnabled }, { cwd: childCwd, settings: settingsManager }),
           ...skillsBinding.loaderOptions,
           ...(extensionFactories.length > 0 ? { extensionFactories } : {}),
           noPromptTemplates: true,

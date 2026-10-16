@@ -9,6 +9,7 @@ import { writePrivateFileAtomicSync } from "./atomic-file";
 import { isExistingPathWithinRoots } from "./path-security";
 import { disabledBuiltInSubagents } from "./subagent-settings";
 import { PRESET_READ_ONLY } from "./tool-presets";
+import { composeDescriptiveBash } from "./project-command-env";
 import type { SessionEntry, SubagentSessionStatus } from "./types";
 
 export const SUBAGENT_META_TYPE = "pi-web:subagent";
@@ -951,13 +952,19 @@ export function scopeSubagentExtensions(names: readonly string[]) {
 export const SUBAGENT_MCP_EXTENSION_PATHS: readonly string[] = ["builtin:tool-search", "builtin:mcp"];
 
 /** The extension half of a child's resource loader options, shared by spawn and reopen. */
-export function subagentExtensionLoaderOptions(resources: { loadExtensions: boolean; extensions?: readonly string[]; mcp?: boolean }) {
+export function subagentExtensionLoaderOptions(
+  resources: { loadExtensions: boolean; extensions?: readonly string[]; mcp?: boolean },
+  projectCommands?: Parameters<typeof composeDescriptiveBash>[1],
+) {
+  const scope = resources.loadExtensions && resources.extensions !== undefined
+    ? scopeSubagentExtensions(resources.extensions)
+    : undefined;
   return {
     noExtensions: !resources.loadExtensions,
     ...(resources.mcp ? { additionalExtensionPaths: [...SUBAGENT_MCP_EXTENSION_PATHS] } : {}),
-    ...(resources.loadExtensions && resources.extensions !== undefined
-      ? { extensionsOverride: scopeSubagentExtensions(resources.extensions) }
-      : {}),
+    ...(resources.loadExtensions && projectCommands
+      ? { extensionsOverride: (base: LoadExtensionsResult) => composeDescriptiveBash(scope?.(base) ?? base, projectCommands) }
+      : scope ? { extensionsOverride: scope } : {}),
   };
 }
 

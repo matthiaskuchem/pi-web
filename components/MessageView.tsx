@@ -21,6 +21,7 @@ import { skillExpansionToCommand } from "@/lib/slash-display";
 import type { SubagentToolDetails } from "@/lib/subagent-extension";
 import { CODEMODE_TOOL_NAME, codemodeCalls, codemodeScript, codemodeScriptPreview, stripCodemodeHeader } from "@/lib/codemode-view";
 import { CodemodeCallList } from "./CodemodeToolView";
+import { bashDescription } from "@/lib/bash-description";
 import { mcpToolLabel, prettyMcpResultText } from "@/lib/mcp-tool-display";
 import { streamRateKey, streamRateStart, streamTokensPerSecond, type StreamRateStart } from "@/lib/stream-token-rate";
 import { getTranscriptNotices } from "@/lib/transcript-notices";
@@ -1183,6 +1184,9 @@ function ToolCallBlock({ block, result, duration, onOpenSubagent }: { block: Too
   };
   const inputStr = getWrittenFileText(block) ?? getToolCallInputText(block);
   const isStreamingInput = block.rawInput !== undefined;
+  // Pi already parses partial streamed arguments; a missing description keeps
+  // the existing generating/command preview until a usable one is available.
+  const description = block.toolName === "bash" ? bashDescription(block.input) : "";
   const isEditTool = isEditToolName(block.toolName);
   const resultDiff = result && !result.isError ? getResultDiff(result) : null;
   const patchFiles = getApplyPatchFiles(block, result);
@@ -1252,10 +1256,24 @@ function ToolCallBlock({ block, result, duration, onOpenSubagent }: { block: Too
               </>
             ) : block.toolName}
           </span>
-          <span style={{ color: "var(--text-dim)", fontFamily: "var(--font-mono)", fontSize: 11, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", flex: 1, minWidth: 0 }}>
-            {isStreamingInput
+          <span
+            title={description || undefined}
+            style={{
+              color: description ? "var(--text-muted)" : "var(--text-dim)",
+              fontFamily: description ? "inherit" : "var(--font-mono)",
+              fontSize: description ? 12 : 11,
+              overflow: "hidden",
+              textOverflow: "ellipsis",
+              whiteSpace: description ? "normal" : "nowrap",
+              overflowWrap: "anywhere",
+              flex: 1,
+              minWidth: 0,
+              ...(description ? { display: "-webkit-box", WebkitBoxOrient: "vertical", WebkitLineClamp: 2 } : {}),
+            }}
+          >
+            {description || (isStreamingInput
               ? t("chat.generatingToolInput")
-              : (patchLabel ?? (codemode ? codemodeScriptPreview(codemode.code) : getToolPreview(block)))}
+              : (patchLabel ?? (codemode ? codemodeScriptPreview(codemode.code) : getToolPreview(block))))}
           </span>
           {codemodeCallCount > 0 && (
             <span style={{ fontSize: 11, color: "var(--text-dim)", flexShrink: 0, fontVariantNumeric: "tabular-nums" }}>

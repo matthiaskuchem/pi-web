@@ -182,6 +182,57 @@ test("keeps streamed tool input out of collapsed markup while counting it", () =
   assert.equal(getTokenEstimateText(block), block.rawInput);
 });
 
+test("Bash descriptions are visible in collapsed live and history cards; commands remain inspectable", () => {
+  const block = { type: "toolCall", toolCallId: "descriptive-bash", toolName: "bash", input: { description: "Find the components that render Bash calls", command: "rg -n ToolCallBlock components/" } };
+  const message = { role: "assistant", content: [block] };
+  clearExpandedToolCalls();
+  try {
+    for (const props of [{}, { isStreaming: true }]) {
+      const html = renderMessage(message, props);
+      assert.match(html, /Find the components that render Bash calls/);
+      assert.doesNotMatch(html, /rg -n ToolCallBlock/);
+    }
+    setToolCallExpanded(block.toolCallId, true);
+    const html = renderMessage(message);
+    assert.match(textOf(html), /rg -n ToolCallBlock components\//);
+    assert.match(textOf(html), /"description": "Find the components/);
+  } finally { clearExpandedToolCalls(); }
+});
+
+test("Bash description previews tolerate partial streamed input and reconnect snapshots", async () => {
+  const { normalizeStreamingToolCalls, normalizeToolCalls } = await jiti.import("@/lib/normalize");
+  const sdkBlock = { type: "toolCall", id: "stream-description", name: "bash", arguments: { description: "Inspect the relevant components" }, partialJson: '{"description":"Inspect the relevant components","command":"rg' };
+  const streaming = normalizeStreamingToolCalls({ role: "assistant", content: [sdkBlock] });
+  for (const message of [streaming, normalizeToolCalls({ role: "assistant", content: [{ ...sdkBlock, arguments: { ...sdkBlock.arguments, command: "rg relevant components/" } }] })]) {
+    const html = renderMessage(message, { isStreaming: true });
+    assert.match(html, /Inspect the relevant components/);
+    assert.doesNotMatch(html, /Generating parameters/);
+  }
+  const empty = renderMessage({ role: "assistant", content: [{ ...streaming.content[0], input: {}, rawInput: '{"description":' }] }, { isStreaming: true });
+  assert.match(empty, /Generating parameters/);
+});
+
+test("Bash descriptions are plain sanitized text, with bounded wrapping on narrow layouts", () => {
+  const description = '\x1b[31mInspect\x1b[0m\n\u202e <script>alert(1)</script> **files** \x1b]0;hidden-title\x07 ' + "longword".repeat(80);
+  const html = renderMessage({ role: "assistant", content: [{ type: "toolCall", toolCallId: "unsafe-description", toolName: "bash", input: { description, command: "printf unchanged" } }] });
+  assert.match(html, /Inspect &lt;script&gt;alert\(1\)&lt;\/script&gt; \*\*files\*\*/);
+  assert.doesNotMatch(html, /<script>|<strong>|hidden-title|\x1b|\u202e|\[31m/);
+  assert.match(html, /overflow-wrap:anywhere/);
+  assert.match(html, /-webkit-line-clamp:2/);
+});
+
+test("legacy Bash, invalid descriptions, user shell commands and other tools keep their previews", () => {
+  for (const description of [undefined, null, "", " \t\n", "\u202e\u200b", 42, {}]) {
+    const html = renderMessage({ role: "assistant", content: [{ type: "toolCall", toolCallId: "legacy-bash", toolName: "bash", input: { command: "printf legacy", description } }] });
+    assert.match(html, /printf legacy/);
+  }
+  const shell = renderMessage({ role: "bashExecution", command: "printf user-shell", output: "done", exitCode: 0, timestamp: 123 });
+  assert.match(shell, /printf user-shell/);
+  const other = renderMessage({ role: "assistant", content: [{ type: "toolCall", toolCallId: "other", toolName: "another-tool", input: { command: "printf other", description: "Do not replace other tools" } }] });
+  assert.match(other, /printf other/);
+  assert.doesNotMatch(other, /Do not replace other tools/);
+});
+
 test("renders write tool content as readable file text", () => {
   const block = {
     type: "toolCall",

@@ -2567,7 +2567,7 @@ export async function startRpcSession(
       settingsManager,
       resourceLoaderOptions: subagentResources
         ? {
-            ...subagentExtensionLoaderOptions(subagentResources),
+            ...subagentExtensionLoaderOptions(subagentResources, { cwd: sessionCwd, settings: settingsManager }),
             ...skillsBinding!.loaderOptions,
             ...(subagentExtensionFactories.length > 0 ? { extensionFactories: subagentExtensionFactories } : {}),
             noPromptTemplates: true,
