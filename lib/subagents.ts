@@ -9,7 +9,7 @@ import { writePrivateFileAtomicSync } from "./atomic-file";
 import { isExistingPathWithinRoots } from "./path-security";
 import { disabledBuiltInSubagents } from "./subagent-settings";
 import { PRESET_READ_ONLY } from "./tool-presets";
-import { createProjectCommandBashExtension, preferUserBashExtension } from "./project-command-env";
+import { createProjectCommandBashExtension, preferProjectCommandBashExtension } from "./project-command-env";
 import type { SessionEntry, SubagentSessionStatus } from "./types";
 
 export const SUBAGENT_META_TYPE = "pi-web:subagent";
@@ -965,7 +965,7 @@ export function subagentExtensionLoaderOptions(
     ...(projectCommands
       ? {
           extensionFactories: [createProjectCommandBashExtension(projectCommands)],
-          extensionsOverride: (base: LoadExtensionsResult) => preferUserBashExtension(scope?.(base) ?? base),
+          extensionsOverride: (base: LoadExtensionsResult) => preferProjectCommandBashExtension(scope?.(base) ?? base),
         }
       : scope ? { extensionsOverride: scope } : {}),
   };

@@ -202,23 +202,23 @@ export function createProjectCommandBashExtension(options: ProjectCommandOptions
   };
 }
 
-export function preferUserBashExtension(base: LoadExtensionsResult): LoadExtensionsResult {
-  const hostExtensionIndex = base.extensions.findIndex((extension) => extension.path === PROJECT_COMMAND_EXTENSION_PATH);
-  if (hostExtensionIndex < 0) return base;
+export function preferProjectCommandBashExtension(base: LoadExtensionsResult): LoadExtensionsResult {
+  const host = base.extensions.find((extension) => extension.path === PROJECT_COMMAND_EXTENSION_PATH);
+  if (!host?.tools.has("bash")) return base;
 
-  const userBashOwner = base.extensions
-    .slice(0, hostExtensionIndex)
-    .find((extension) => extension.tools.has("bash"));
+  for (const extension of base.extensions) {
+    // Keep other tools, handlers and providers; only Bash belongs to Pi Web.
+    // Removing the shadowed registration also prevents child ext: grants from
+    // treating the host's Bash as an external tool the profile selected.
+    if (extension !== host) extension.tools.delete("bash");
+  }
   return {
     ...base,
-    // Explicit user replacements (SSH, sandbox, approval, etc.) stay untouched.
-    extensions: userBashOwner
-      ? base.extensions.filter((_, index) => index !== hostExtensionIndex)
-      : base.extensions,
-    // A child's scope may already have dropped the conflicting external owner.
-    errors: base.errors.filter((error) => !(
-      error.path === PROJECT_COMMAND_EXTENSION_PATH
-      && error.error.startsWith('Tool "bash" conflicts with ')
-    )),
+    // The SDK's first owner wins, including tools registered at session_start
+    // or later. Keep the host first so a late external Bash cannot replace it.
+    extensions: [host, ...base.extensions.filter((extension) => extension !== host)],
+    // All Bash ownership conflicts are resolved here, including owners already
+    // dropped by a child's scope. Preserve unrelated extension diagnostics.
+    errors: base.errors.filter((error) => !error.error.startsWith('Tool "bash" conflicts with ')),
   };
 }
