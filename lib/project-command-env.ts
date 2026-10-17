@@ -179,7 +179,6 @@ export function createProjectCommandBashExtension(options: ProjectCommandOptions
         parameters: Type.Object({
           description: Type.String({
             minLength: 1,
-            pattern: "\\S",
             description: "Human-readable explanation of this command and its purpose in active voice. " +
               "Usually 5–10 words; use more context for scripts and pipelines. State consequential effects; never include secrets.",
           }),
