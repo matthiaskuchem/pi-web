@@ -144,6 +144,11 @@ test("on a desktop the files sit below the sessions by default, both in view", (
   assert.match(filesPanel, /^<div class="sidebar-files-section"><button type="button" class="sidebar-files-section-toggle" aria-expanded="true" aria-controls="session-sidebar-files-body"><svg width="12" height="12"[^>]*stroke-width="3"[^>]*class="session-tree-chevron is-open"[^>]*>[\s\S]*?<\/svg><span class="sidebar-files-section-label">Files<\/span><\/button><div class="sidebar-files-keys" role="group" aria-label="File actions"><button type="button" title="Open workspace terminal" aria-label="Open workspace terminal" class="sidebar-tool-button">/);
   assert.match(filesPanel, /<div id="session-sidebar-files-body" class="sidebar-files-body"><div class="sidebar-files-head"><div class="project-picker is-row" role="group"/);
   assert.match(filesPanel, /<div class="sidebar-files-scroll scrollbar-subtle">/);
+  // The history lives in the same foldable body in either files layout.
+  const filesBody = source.slice(source.indexOf('<div id="session-sidebar-files-body"'), source.indexOf("<SidebarMenu\n"));
+  assert.match(filesBody, /<GitHistory[\s\S]*onOpenCommitFile=\{onOpenCommitFile/);
+  assert.match(source, /if \(loadGitHistoryOpen\(\)\) setGitHistoryOpen\(true\);/);
+  assert.match(source, /saveGitHistoryOpen\(open\);/);
   assert.doesNotMatch(filesPanel, /sidebar-files-toolbar|sidebar-files-title|sidebar-files-actions|sidebar-files-section-search|sidebar-files-changes/);
   assert.doesNotMatch(filesPanel, /sidebar-files-section-count/);
   // Pins and archive not loaded yet: the tree waits instead of flashing archived rows.

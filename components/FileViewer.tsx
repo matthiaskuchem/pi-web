@@ -1895,3 +1895,7 @@ function TextFileViewer({
     </div>
   );
 }
+
+// The Git history commit-diff tab reuses the Diff view (fork-only). Exported
+// here, not at the declaration, so upstream tests that evaluate its text pass.
+export { DiffView };
