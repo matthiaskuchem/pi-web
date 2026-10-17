@@ -40,6 +40,7 @@ import { createSubagentCodemodeExtension, createSubagentMcpExtensions } from "./
 import type { McpHost } from "./mcp-host";
 import { createSubagentMcpPolicyExtension } from "./mcp-read-only-policy";
 import { resolveShellTools } from "./powershell-settings";
+import { PROJECT_COMMAND_EXTENSION_PATH } from "./project-command-env";
 import { isBuiltInSubagentsEnabled, readSubagentSettings } from "./subagent-settings";
 import { SubagentQueue } from "./subagent-queue";
 import { addWorktree, removeWorktree } from "./worktree";
@@ -385,7 +386,12 @@ export function createSubagentController(
             codemode: codemodeEnabled,
           })
         : undefined;
+      const extensionLoaderOptions = subagentExtensionLoaderOptions(
+        { ...profile, mcp: mcpEnabled },
+        chatOnly ? undefined : { cwd: childCwd, settings: settingsManager },
+      );
       const extensionFactories = [
+        ...(extensionLoaderOptions.extensionFactories ?? []),
         ...(codemodeExtension ? [codemodeExtension] : []),
         ...(mcp ? [...mcp.extensions, createSubagentMcpPolicyExtension(() => mcpScope)] : []),
         ...(skillsBinding.loaderOptions.extensionFactories ?? []),
@@ -397,7 +403,7 @@ export function createSubagentController(
         modelRuntime: parentModelRuntime,
         settingsManager,
         resourceLoaderOptions: {
-          ...subagentExtensionLoaderOptions({ ...profile, mcp: mcpEnabled }),
+          ...extensionLoaderOptions,
           ...skillsBinding.loaderOptions,
           ...(extensionFactories.length > 0 ? { extensionFactories } : {}),
           noPromptTemplates: true,
@@ -422,14 +428,17 @@ export function createSubagentController(
 
       // `ext:` selectors that `disallowed_tools` cancels out leave an empty list, which admits none.
       const allExtensionTools = profile.loadExtensions && profile.extensionTools === undefined;
+      // The host's built-in replacement must not count as a profile's extension grant.
+      const userExtensions = services.resourceLoader.getExtensions().extensions
+        .filter((extension) => extension.path !== PROJECT_COMMAND_EXTENSION_PATH);
       const extensionToolNames = profile.loadExtensions
         ? profile.extensionTools !== undefined
           ? selectSubagentExtensionTools(
-            services.resourceLoader.getExtensions().extensions,
+            userExtensions,
             profile.extensionTools,
             profile.disallowedExtensionTools,
           )
-          : services.resourceLoader.getExtensions().extensions.flatMap((extension) => [...extension.tools.keys()])
+          : userExtensions.flatMap((extension) => [...extension.tools.keys()])
         : [];
       const activeTools = resolveShellTools(
         withSubagentExtensionTools(profile.tools, extensionToolNames),

@@ -13,7 +13,7 @@ import { isBlockingExtensionUiRequest } from "./extension-ui-queue";
 import {
   createProjectCommandBashExtension,
   createProjectCommandBashOperations,
-  preferUserBashExtension,
+  preferProjectCommandBashExtension,
 } from "./project-command-env";
 import { cacheSessionPath, catalogFirstMessage, getLatestModelChange, invalidateSessionListCache, readLatestSessionEntryId, resolveSessionPath } from "./session-reader";
 import { getProjectTrustStatus, projectTrustReloadOptions } from "./project-trust";
@@ -2554,7 +2554,14 @@ export async function startRpcSession(
       exactSystemPrompt: subagentResources.exactSystemPrompt
         ?? (chatOnly ? subagentResources.appendSystemPrompt[0] ?? "" : undefined),
     }) : undefined;
+    const subagentLoaderOptions = subagentResources
+      ? subagentExtensionLoaderOptions(
+          subagentResources,
+          chatOnly ? undefined : { cwd: sessionCwd, settings: settingsManager },
+        )
+      : undefined;
     const subagentExtensionFactories = [
+      ...(subagentLoaderOptions?.extensionFactories ?? []),
       ...(subagentCodemode ? [subagentCodemode] : []),
       ...(subagentMcp && subagentResources
         ? [...subagentMcp.extensions, createSubagentMcpPolicyExtension(() => subagentResources)]
@@ -2567,7 +2574,7 @@ export async function startRpcSession(
       settingsManager,
       resourceLoaderOptions: subagentResources
         ? {
-            ...subagentExtensionLoaderOptions(subagentResources),
+            ...subagentLoaderOptions,
             ...skillsBinding!.loaderOptions,
             ...(subagentExtensionFactories.length > 0 ? { extensionFactories: subagentExtensionFactories } : {}),
             noPromptTemplates: true,
@@ -2597,7 +2604,7 @@ export async function startRpcSession(
                 isBuiltInSubagentsEnabled,
               ),
             ],
-            extensionsOverride: (base) => preferUserBashExtension(preferPiWebSubagentExtension(base)),
+            extensionsOverride: (base) => preferProjectCommandBashExtension(preferPiWebSubagentExtension(base)),
           },
       ...(trustReloadOptions ? { resourceLoaderReloadOptions: trustReloadOptions } : {}),
     });

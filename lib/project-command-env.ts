@@ -6,10 +6,20 @@ import {
   type InlineExtension,
   type LoadExtensionsResult,
 } from "@earendil-works/pi-coding-agent";
+import { Type } from "@earendil-works/pi-ai";
 import { join } from "node:path";
+import { bashDescription } from "./bash-description";
 
 const HOST_EXTENSION_NAME = "pi-web-project-command-environment";
-const HOST_EXTENSION_PATH = `<inline:${HOST_EXTENSION_NAME}>`;
+export const PROJECT_COMMAND_EXTENSION_PATH = `<inline:${HOST_EXTENSION_NAME}>`;
+
+const DESCRIPTION_GUIDANCE =
+  "For every bash call, provide a description of what the command does and its immediate purpose, " +
+  "in clear, active language. Use roughly 5–10 words for simple commands; explain pipelines and " +
+  "scripts sufficiently to make their effect understandable. Explicitly mention consequential " +
+  "effects such as writing or deleting files, installing software, or restarting services. " +
+  "Describe the whole call, not just its first command. Do not include secrets. " +
+  "The description explains the command; it is not an approval or a claim that it is safe.";
 // Pi's own abort path settles well within this once the process tree is gone.
 const ABORT_SETTLE_GRACE_MS = 1000;
 const MAX_TIMER_DELAY_MS = 2_147_483_647;
@@ -141,51 +151,73 @@ export function createProjectCommandBashOperations(
   };
 }
 
-export function createProjectCommandBashExtension(options: {
-  cwd: string;
-  settings: ProjectShellSettings;
-}): InlineExtension {
+type ProjectCommandOptions = { cwd: string; settings: ProjectShellSettings };
+type BashExecute = ReturnType<typeof createBashToolDefinition>["execute"];
+
+function projectCommandBashExecute(options: ProjectCommandOptions): BashExecute {
+  return (toolCallId, params, signal, onUpdate, context) => {
+    const executionDefinition = createBashToolDefinition(context?.cwd ?? options.cwd, {
+      commandPrefix: options.settings.getShellCommandPrefix(),
+      operations: createProjectCommandBashOperations({
+        shellPath: options.settings.getShellPath(),
+      }),
+    });
+    return executionDefinition.execute(toolCallId, params, signal, onUpdate, context);
+  };
+}
+
+export function createProjectCommandBashExtension(options: ProjectCommandOptions): InlineExtension {
   return {
     name: HOST_EXTENSION_NAME,
     hidden: true,
     factory: (pi) => {
-      const displayDefinition = createBashToolDefinition(options.cwd);
+      const original = createBashToolDefinition(options.cwd);
+      const execute = projectCommandBashExecute(options);
       pi.registerTool({
-        ...displayDefinition,
-        // This stands in for pi's built-in bash, so like it, it is active only when named:
-        // by `defaultTools` (pi's default list names it), a preset or `set_tools`. Otherwise
-        // pi turns it on at every start and reload, as it does any extension tool, whatever
-        // `defaultTools` leaves out (#1235).
+        ...original,
+        // Pi Web owns this schema; no shared/CLI extension needs to be enabled.
+        parameters: Type.Object({
+          description: Type.String({
+            minLength: 1,
+            description: "Human-readable explanation of this command and its purpose in active voice. " +
+              "Usually 5–10 words; use more context for scripts and pipelines. State consequential effects; never include secrets.",
+          }),
+          ...original.parameters.properties,
+        }),
+        description: `${original.description} ${DESCRIPTION_GUIDANCE}`,
+        promptGuidelines: [...(original.promptGuidelines ?? []), DESCRIPTION_GUIDANCE],
+        // Like the built-in, active only when defaultTools/a preset names it (#1235).
         defaultActive: false,
-        execute(toolCallId, params, signal, onUpdate, context) {
-          const executionDefinition = createBashToolDefinition(options.cwd, {
-            commandPrefix: options.settings.getShellCommandPrefix(),
-            operations: createProjectCommandBashOperations({
-              shellPath: options.settings.getShellPath(),
-            }),
-          });
-          return executionDefinition.execute(toolCallId, params, signal, onUpdate, context);
+        prepareArguments: undefined,
+        async execute(toolCallId, input, signal, onUpdate, context) {
+          if (!bashDescription(input)) {
+            throw new Error("bash requires a nonblank, human-readable description.");
+          }
+          // Description is inert metadata: only command/timeout reach the executor.
+          return execute(toolCallId, { command: input.command, timeout: input.timeout }, signal, onUpdate, context);
         },
       });
     },
   };
 }
 
-export function preferUserBashExtension(base: LoadExtensionsResult): LoadExtensionsResult {
-  const hostExtensionIndex = base.extensions.findIndex((extension) => extension.path === HOST_EXTENSION_PATH);
-  if (hostExtensionIndex < 0) return base;
+export function preferProjectCommandBashExtension(base: LoadExtensionsResult): LoadExtensionsResult {
+  const host = base.extensions.find((extension) => extension.path === PROJECT_COMMAND_EXTENSION_PATH);
+  if (!host?.tools.has("bash")) return base;
 
-  const userBashOwner = base.extensions
-    .slice(0, hostExtensionIndex)
-    .find((extension) => extension.tools.has("bash"));
-  if (!userBashOwner) return base;
-
+  for (const extension of base.extensions) {
+    // Keep other tools, handlers and providers; only Bash belongs to Pi Web.
+    // Removing the shadowed registration also prevents child ext: grants from
+    // treating the host's Bash as an external tool the profile selected.
+    if (extension !== host) extension.tools.delete("bash");
+  }
   return {
     ...base,
-    extensions: base.extensions.filter((_, index) => index !== hostExtensionIndex),
-    errors: base.errors.filter((error) => !(
-      error.path === HOST_EXTENSION_PATH
-      && error.error === `Tool "bash" conflicts with ${userBashOwner.path}`
-    )),
+    // The SDK's first owner wins, including tools registered at session_start
+    // or later. Keep the host first so a late external Bash cannot replace it.
+    extensions: [host, ...base.extensions.filter((extension) => extension !== host)],
+    // All Bash ownership conflicts are resolved here, including owners already
+    // dropped by a child's scope. Preserve unrelated extension diagnostics.
+    errors: base.errors.filter((error) => !error.error.startsWith('Tool "bash" conflicts with ')),
   };
 }

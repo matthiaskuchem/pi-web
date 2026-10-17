@@ -1,5 +1,5 @@
 import type { ThinkingLevel } from "@earendil-works/pi-agent-core";
-import { getAgentDir, type LoadExtensionsResult } from "@earendil-works/pi-coding-agent";
+import { getAgentDir, type DefaultResourceLoader, type LoadExtensionsResult } from "@earendil-works/pi-coding-agent";
 import { dump as stringifyYaml } from "js-yaml";
 import { existsSync, mkdirSync, readdirSync, readFileSync, unlinkSync } from "fs";
 import { basename, dirname, join, resolve } from "path";
@@ -9,6 +9,7 @@ import { writePrivateFileAtomicSync } from "./atomic-file";
 import { isExistingPathWithinRoots } from "./path-security";
 import { disabledBuiltInSubagents } from "./subagent-settings";
 import { PRESET_READ_ONLY } from "./tool-presets";
+import { createProjectCommandBashExtension, preferProjectCommandBashExtension } from "./project-command-env";
 import type { SessionEntry, SubagentSessionStatus } from "./types";
 
 export const SUBAGENT_META_TYPE = "pi-web:subagent";
@@ -951,13 +952,22 @@ export function scopeSubagentExtensions(names: readonly string[]) {
 export const SUBAGENT_MCP_EXTENSION_PATHS: readonly string[] = ["builtin:tool-search", "builtin:mcp"];
 
 /** The extension half of a child's resource loader options, shared by spawn and reopen. */
-export function subagentExtensionLoaderOptions(resources: { loadExtensions: boolean; extensions?: readonly string[]; mcp?: boolean }) {
+export function subagentExtensionLoaderOptions(
+  resources: { loadExtensions: boolean; extensions?: readonly string[]; mcp?: boolean },
+  projectCommands?: Parameters<typeof createProjectCommandBashExtension>[0],
+): Pick<ConstructorParameters<typeof DefaultResourceLoader>[0], "noExtensions" | "additionalExtensionPaths" | "extensionFactories" | "extensionsOverride"> {
+  const scope = resources.loadExtensions && resources.extensions !== undefined
+    ? scopeSubagentExtensions(resources.extensions)
+    : undefined;
   return {
     noExtensions: !resources.loadExtensions,
     ...(resources.mcp ? { additionalExtensionPaths: [...SUBAGENT_MCP_EXTENSION_PATHS] } : {}),
-    ...(resources.loadExtensions && resources.extensions !== undefined
-      ? { extensionsOverride: scopeSubagentExtensions(resources.extensions) }
-      : {}),
+    ...(projectCommands
+      ? {
+          extensionFactories: [createProjectCommandBashExtension(projectCommands)],
+          extensionsOverride: (base: LoadExtensionsResult) => preferProjectCommandBashExtension(scope?.(base) ?? base),
+        }
+      : scope ? { extensionsOverride: scope } : {}),
   };
 }
 
