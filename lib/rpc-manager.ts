@@ -2554,7 +2554,14 @@ export async function startRpcSession(
       exactSystemPrompt: subagentResources.exactSystemPrompt
         ?? (chatOnly ? subagentResources.appendSystemPrompt[0] ?? "" : undefined),
     }) : undefined;
+    const subagentLoaderOptions = subagentResources
+      ? subagentExtensionLoaderOptions(
+          subagentResources,
+          chatOnly ? undefined : { cwd: sessionCwd, settings: settingsManager },
+        )
+      : undefined;
     const subagentExtensionFactories = [
+      ...(subagentLoaderOptions?.extensionFactories ?? []),
       ...(subagentCodemode ? [subagentCodemode] : []),
       ...(subagentMcp && subagentResources
         ? [...subagentMcp.extensions, createSubagentMcpPolicyExtension(() => subagentResources)]
@@ -2567,7 +2574,7 @@ export async function startRpcSession(
       settingsManager,
       resourceLoaderOptions: subagentResources
         ? {
-            ...subagentExtensionLoaderOptions(subagentResources, { cwd: sessionCwd, settings: settingsManager }),
+            ...subagentLoaderOptions,
             ...skillsBinding!.loaderOptions,
             ...(subagentExtensionFactories.length > 0 ? { extensionFactories: subagentExtensionFactories } : {}),
             noPromptTemplates: true,

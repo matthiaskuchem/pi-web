@@ -6,13 +6,20 @@ import {
   type InlineExtension,
   type LoadExtensionsResult,
 } from "@earendil-works/pi-coding-agent";
-import { basename, join } from "node:path";
-import { createHash } from "node:crypto";
-import { readFileSync, statSync } from "node:fs";
-import { stripVTControlCharacters } from "node:util";
+import { Type } from "@earendil-works/pi-ai";
+import { join } from "node:path";
+import { bashDescription } from "./bash-description";
 
 const HOST_EXTENSION_NAME = "pi-web-project-command-environment";
-const HOST_EXTENSION_PATH = `<inline:${HOST_EXTENSION_NAME}>`;
+export const PROJECT_COMMAND_EXTENSION_PATH = `<inline:${HOST_EXTENSION_NAME}>`;
+
+const DESCRIPTION_GUIDANCE =
+  "For every bash call, provide a description of what the command does and its immediate purpose, " +
+  "in clear, active language. Use roughly 5–10 words for simple commands; explain pipelines and " +
+  "scripts sufficiently to make their effect understandable. Explicitly mention consequential " +
+  "effects such as writing or deleting files, installing software, or restarting services. " +
+  "Describe the whole call, not just its first command. Do not include secrets. " +
+  "The description explains the command; it is not an approval or a claim that it is safe.";
 // Pi's own abort path settles well within this once the process tree is gone.
 const ABORT_SETTLE_GRACE_MS = 1000;
 const MAX_TIMER_DELAY_MS = 2_147_483_647;
@@ -164,84 +171,54 @@ export function createProjectCommandBashExtension(options: ProjectCommandOptions
     name: HOST_EXTENSION_NAME,
     hidden: true,
     factory: (pi) => {
+      const original = createBashToolDefinition(options.cwd);
+      const execute = projectCommandBashExecute(options);
       pi.registerTool({
-        ...createBashToolDefinition(options.cwd),
+        ...original,
+        // Pi Web owns this schema; no shared/CLI extension needs to be enabled.
+        parameters: Type.Object({
+          description: Type.String({
+            minLength: 1,
+            pattern: "\\S",
+            description: "Human-readable explanation of this command and its purpose in active voice. " +
+              "Usually 5–10 words; use more context for scripts and pipelines. State consequential effects; never include secrets.",
+          }),
+          ...original.parameters.properties,
+        }),
+        description: `${original.description} ${DESCRIPTION_GUIDANCE}`,
+        promptGuidelines: [...(original.promptGuidelines ?? []), DESCRIPTION_GUIDANCE],
         // Like the built-in, active only when defaultTools/a preset names it (#1235).
         defaultActive: false,
-        execute: projectCommandBashExecute(options),
+        prepareArguments: undefined,
+        async execute(toolCallId, input, signal, onUpdate, context) {
+          if (!bashDescription(input)) {
+            throw new Error("bash requires a nonblank, human-readable description.");
+          }
+          // Description is inert metadata: only command/timeout reach the executor.
+          return execute(toolCallId, { command: input.command, timeout: input.timeout }, signal, onUpdate, context);
+        },
       });
     },
   };
 }
 
-// Reviewed pi0 source, also kept verbatim as a synthetic test fixture. This is
-// deliberately NOT a general adapter for description-shaped Bash replacements:
-// those might implement SSH, sandboxing, approval or background execution.
-const DESCRIPTIVE_BASH_SHA256 = "fe89ced304b5f8009ea1aef0b66a6f626dc6afeacbb1f2f1ad9dac38e05c2494";
-
-function composeBashExtension(
-  extension: LoadExtensionsResult["extensions"][number],
-  execute: BashExecute,
-) {
-  const registered = extension.tools.get("bash");
-  if (!registered || basename(extension.path) !== "bash-description.ts") return extension;
-
-  let reviewed = false;
-  try {
-    const stat = statSync(extension.path);
-    reviewed = stat.isFile() && stat.size <= 64 * 1024
-      && createHash("sha256").update(readFileSync(extension.path)).digest("hex") === DESCRIPTIVE_BASH_SHA256;
-  } catch { /* Fail closed, without including source or filesystem error details. */ }
-  if (!reviewed) {
-    throw new Error("Pi Web cannot compose this bash-description.ts revision. Review its source and update the descriptive Bash integration before reloading.");
-  }
-
-  const tools = new Map(extension.tools);
-  tools.set("bash", {
-    ...registered,
-    definition: {
-      ...registered.definition,
-      // Keep the extension's schema, guidance, activation policy and renderers.
-      // Only the reviewed local execution is replaced with Pi Web's executor.
-      async execute(toolCallId, params, signal, onUpdate, context) {
-        const input = params as { description?: unknown; command: string; timeout?: number };
-        const description = typeof input.description === "string"
-          ? stripVTControlCharacters(input.description).replace(/[\p{Cc}\p{Cf}\p{Zl}\p{Zp}]/gu, " ").trim()
-          : "";
-        if (!description) throw new Error("bash requires a nonblank, human-readable description.");
-        return execute(toolCallId, { command: input.command, timeout: input.timeout }, signal, onUpdate, context);
-      },
-    },
-  });
-  // Resource-loader objects can be cached/shared; never mutate their definitions.
-  return { ...extension, tools };
-}
-
-/** Child sessions have no fallback Bash extension, but use the same composition. */
-export function composeDescriptiveBash(base: LoadExtensionsResult, options: ProjectCommandOptions): LoadExtensionsResult {
-  const execute = projectCommandBashExecute(options);
-  return { ...base, extensions: base.extensions.map((extension) => composeBashExtension(extension, execute)) };
-}
-
 export function preferUserBashExtension(base: LoadExtensionsResult): LoadExtensionsResult {
-  const hostExtensionIndex = base.extensions.findIndex((extension) => extension.path === HOST_EXTENSION_PATH);
+  const hostExtensionIndex = base.extensions.findIndex((extension) => extension.path === PROJECT_COMMAND_EXTENSION_PATH);
   if (hostExtensionIndex < 0) return base;
 
   const userBashOwner = base.extensions
     .slice(0, hostExtensionIndex)
     .find((extension) => extension.tools.has("bash"));
-  if (!userBashOwner) return base;
-
   return {
     ...base,
-    extensions: base.extensions
-      .filter((_, index) => index !== hostExtensionIndex)
-      .map((extension) => extension === userBashOwner
-        ? composeBashExtension(extension, base.extensions[hostExtensionIndex].tools.get("bash")!.definition.execute as BashExecute)
-        : extension),
+    // Explicit user replacements (SSH, sandbox, approval, etc.) stay untouched.
+    extensions: userBashOwner
+      ? base.extensions.filter((_, index) => index !== hostExtensionIndex)
+      : base.extensions,
+    // A child's scope may already have dropped the conflicting external owner.
     errors: base.errors.filter((error) => !(
-      error.path === HOST_EXTENSION_PATH
-      && error.error === `Tool "bash" conflicts with ${userBashOwner.path}`
+      error.path === PROJECT_COMMAND_EXTENSION_PATH
+      && error.error.startsWith('Tool "bash" conflicts with ')
     )),
   };
 }
